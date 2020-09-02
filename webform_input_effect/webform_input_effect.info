@@ -1,0 +1,6 @@
+name = Webform Input Effect
+description = Add text input effect to Webforms.
+core = 7.x
+package = Custom
+
+dependencies[] = webform

@@ -1,0 +1,4 @@
+name = Empty Default Webform Tokens
+description = clear webform default values if matching certain tokens like name, email, phone
+core = 7.x
+version = "1.0.0"

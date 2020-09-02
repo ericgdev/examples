@@ -1,0 +1,9 @@
+<?php
+
+/**
+ *  Implements hook_form_BASE_FORM_ID_alter.
+ */
+function webform_input_effect_form_webform_client_form_alter(&$form, &$form_state, $form_id) {
+  $form['#attached']['js'][] = drupal_get_path('module', 'webform_input_effect') . '/js/webform_input_effect.js';
+  $form['#attached']['css'][] = drupal_get_path('module', 'webform_input_effect') . '/webform_input_effect.css';
+}

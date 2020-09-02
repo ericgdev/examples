@@ -1,0 +1,473 @@
+<?php
+
+// Load Webform Popup Helper functions.
+module_load_include('inc', 'webform_popup_helper', 'webform_popup_helper.functions');
+
+/**
+ * Implements hook_menu().
+ */
+function webform_popup_helper_menu() {
+  $items = array();
+
+  $items['webform-popup-helper/popup'] = array (
+    'page callback' => 'webform_popup_helper_popup',
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  
+  $items['webform-popup-helper/check-email/%/%'] = array (
+    'page callback' => 'webform_popup_helper_check_email',
+    'page arguments'   => array(2, 3),
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+/**
+ * webform_popup_helper_json callback.
+ */
+function webform_popup_helper_popup() {
+  $result = array('valid' => TRUE);
+  drupal_json_output($result);
+}
+
+/**
+ * webform_popup_helper_json callback.
+ */
+function webform_popup_helper_check_email($nid, $email) {
+  $node = node_load($nid);
+  
+  // Check if email already exists in database.
+  $email_exists = FALSE;
+  if (!empty($node)) {
+    if ($cid = webform_get_cid($node, 'email_address')) {
+      $email_exists = webform_popup_helper_validate_unique($nid, $cid[0], $email);
+    }
+  }
+  
+  $response = array('email_exists' => $email_exists);
+  
+  if (isset($_GET['callback'])) {
+    $callback = $_GET['callback'];
+
+    if (preg_match('/\W/', $callback)) {
+      // if $callback contains a non-word character, it could be an XSS attack.
+      header('HTTP/1.1 400 Bad Request');
+      exit();
+    }
+  
+    header("Content-type: text/javascript; charset=utf-8");
+
+    $json_response = drupal_json_encode($response);
+    echo $callback ."(". $json_response .");";
+  }
+  else {
+    drupal_json_output($response);
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function webform_popup_helper_form_alter(&$form, &$form_state, $form_id) {
+  switch($form_id) {
+    case 'webform_configure_form':
+      // Get node object.
+      $node = $form['#node'];
+
+      // Redirection settings.
+      if (strpos($node->webform['redirect_url'], '<') === 0) {
+        $redirect = trim($node->webform['redirect_url'], '<>');
+        // Redirection is set to front page.
+        if ($redirect == 'front') {
+          $redirect = 'url';
+          $window_urls = '';
+          $redirect_url = $node->webform['redirect_url'];
+        }
+        else if ($redirect == 'windows') {
+          $redirect = 'windows';
+          $redirect_url = '';
+        }
+        else {
+          $redirect_url = '';
+          $window_urls = '';
+        }
+      }
+      else {
+        $redirect = 'url';
+        $window_urls = '';
+        $redirect_url = $node->webform['redirect_url'];
+      }
+
+      $form['submission']['redirection']['#description'] = t('Choose where to redirect the user upon successful submission.') . ' ' . 
+        t('The <em>Custom URL</em> and <em>Trigger popup windows</em> options support Webform token replacements.') . ' ' . theme('webform_token_help', array('groups' => array('node', 'submission')));
+      $form['submission']['redirection']['redirect']['#default_value'] = $redirect;
+      $form['submission']['redirection']['redirect']['#options']['windows'] = t('Trigger popup windows (define urls below)');
+
+      $form['submission']['redirection']['windows'] = array(
+        '#type' => 'container',
+        '#tree' => TRUE,
+        '#states' => array(
+          'visible' => array(
+            ':input[name="redirect"]' => array('value' => 'windows')
+          ),
+        ),
+      );
+
+      // Default Urls fieldset.
+      $form['submission']['redirection']['windows']['defaults'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Default URLs'),
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        '#prefix' => '<div id="default-urls">',
+        '#suffix' => '</div>',
+      );
+      
+      // Retrieve Default window urls.
+      $window_urls = isset($node->webform['window_urls']) ? unserialize($node->webform['window_urls']) : array();
+
+      if (empty($form_state['num_window_urls'])) {
+        $form_state['num_window_urls'] = !empty($window_urls) ? count($window_urls) : 1;
+      }
+
+      for ($i = 1; $i <= $form_state['num_window_urls']; $i++) {
+        $form['submission']['redirection']['windows']['defaults'][$i] = array(
+          '#type' => 'item',
+        );
+        
+        $form['submission']['redirection']['windows']['defaults'][$i]['url'] = array(
+          '#title' => t('Url @item', array('@item' => $i)),
+          '#type' => 'textfield',
+          '#default_value' => isset($window_urls[$i]['url']) ? $window_urls[$i]['url'] : '',
+          '#size'=> 180,
+          '#maxlength' => 1024,
+        );
+        
+        if ($i == 1) {
+          $form['submission']['redirection']['windows']['defaults'][$i]['url'] += array('#states' => array(
+            'required' => array(
+              array(':input[name="redirect"]' => array('value' => 'windows')),
+             ),
+           ));
+        }
+      }
+
+      $form['submission']['redirection']['windows']['defaults']['add_url'] = array(
+        '#type' => 'submit',
+        '#value' => t('Add an Url'),
+        '#submit' => array('webform_popup_helper_add_more_url'),
+        '#ajax' => array(
+          'callback' => 'webform_popup_helper_add_more_url_callback',
+          'wrapper' => 'default-urls',
+        ),
+      );
+    
+      // Default Urls (for duplicate submissions) fieldset.
+      $form['submission']['redirection']['windows']['duplicate'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Default URLs (for duplicate submissions)'),
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        '#prefix' => '<div id="duplicate-urls">',
+        '#suffix' => '</div>',
+      );
+      
+      // Retrieve Default window urls (for duplicate submissions).
+      $window_duplicate_urls = isset($node->webform['window_duplicate_urls']) ? unserialize($node->webform['window_duplicate_urls']) : array();
+
+      if (empty($form_state['num_window_duplicate_urls'])) {
+        $form_state['num_window_duplicate_urls'] = !empty($window_duplicate_urls) ? count($window_duplicate_urls) : 1;
+      }
+
+      for ($i = 1; $i <= $form_state['num_window_duplicate_urls']; $i++) {
+        $form['submission']['redirection']['windows']['duplicate'][$i] = array(
+          '#type' => 'item',
+        );
+        
+        $form['submission']['redirection']['windows']['duplicate'][$i]['url'] = array(
+          '#title' => t('Url @item', array('@item' => $i)),
+          '#type' => 'textfield',
+          '#default_value' => isset($window_duplicate_urls[$i]['url']) ? $window_duplicate_urls[$i]['url'] : '',
+          '#size'=> 180,
+          '#maxlength' => 1024,
+        );        
+      }
+
+      $form['submission']['redirection']['windows']['duplicate']['add_url'] = array(
+        '#type' => 'submit',
+        '#value' => t('Add a new Url'),
+        '#submit' => array('webform_popup_helper_add_more_duplicate_url'),
+        '#ajax' => array(
+          'callback' => 'webform_popup_helper_add_more_duplicate_url_callback',
+          'wrapper' => 'duplicate-urls',
+        ),
+      );    
+
+      // Conditional Urls fieldset.
+      $form['submission']['redirection']['windows']['conditionals'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Conditionals URLs'),
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        '#prefix' => '<div id="conditional-urls">',
+        '#suffix' => '</div>',
+      );
+  
+      // Retrieve Conditional Window urls.
+      $window_cond_urls = !isset($form_state['window_cond_urls']) && !empty($node->webform['window_cond_urls']) ? unserialize($node->webform['window_cond_urls']) : array();
+      $form_state['window_cond_urls'] = isset($form_state['window_cond_urls']) ? $form_state['window_cond_urls'] : $window_cond_urls;
+      $form_state['num_window_cond_urls'] = isset($form_state['num_window_cond_urls']) ? $form_state['num_window_cond_urls'] : range(0, count($window_cond_urls));
+
+      foreach ($form_state['num_window_cond_urls'] as $delta) {
+        $form['submission']['redirection']['windows']['conditionals'][$delta] = array(
+          '#type' => 'item',
+        );
+
+        $form['submission']['redirection']['windows']['conditionals'][$delta]['wrapper_start'] = array(
+          '#markup' => '<div class="conditionals-wrapper conditionals-row-' . $delta . ' clearfix">',
+        );
+
+        $form['submission']['redirection']['windows']['conditionals'][$delta]['component'] = array(
+          '#type' => 'select',
+          '#title' => t('Component'),
+          '#options' => array('' => t('Select')) + webform_component_list($node, NULL, FALSE, TRUE),
+          '#description' => t('Select a webform component.'),
+          '#default_value' => isset($form_state['window_cond_urls'][$delta]['component']) ? $form_state['window_cond_urls'][$delta]['component'] : '',
+        );
+
+        $form['submission']['redirection']['windows']['conditionals'][$delta]['values'] = array(
+          '#title' => t('Values'),
+          '#type' => 'textfield',
+          '#size'=> 40,
+          '#description' => t('Enter the values (separated by comma) that will trigger this action.'),
+          '#default_value' => isset($form_state['window_cond_urls'][$delta]['values']) ? $form_state['window_cond_urls'][$delta]['values'] : '',
+        );
+
+        $form['submission']['redirection']['windows']['conditionals'][$delta]['url'] = array(
+          '#title' => t('Url'),
+          '#type' => 'textfield',
+          '#description' => t('Enter the path url.'),
+          '#default_value' => isset($form_state['window_cond_urls'][$delta]['url']) ? $form_state['window_cond_urls'][$delta]['url'] : '',
+          '#size'=> 110,
+          '#maxlength' => 1024,
+        );
+
+        $form['submission']['redirection']['windows']['conditionals'][$delta]['remove_row'] = array(
+          '#type' => 'submit',
+          '#value' => t('Remove'),
+          '#name' => 'conditionals_remove_row_' . $delta,
+          '#submit' => array('webform_popup_helper_add_more_remove_url'),
+          '#ajax' => array(
+            'callback' => 'webform_popup_helper_add_more_cond_url_callback',
+            'wrapper' => 'conditional-urls',
+          ),
+          '#prefix' => '<div class="form-item form-item-submit">',
+          '#suffix' => '</div>',
+        );
+        
+        $form['submission']['redirection']['windows']['conditionals'][$delta]['wrapper_end'] = array(
+          '#markup' => '</div>',
+        );
+      }
+
+      $form['submission']['redirection']['windows']['conditionals']['add_url'] = array(
+        '#type' => 'submit',
+        '#value' => t('Add a Conditional Url'),
+        '#submit' => array('webform_popup_helper_add_more_cond_url'),
+        '#ajax' => array(
+          'callback' => 'webform_popup_helper_add_more_cond_url_callback',
+          'wrapper' => 'conditional-urls',
+        ),
+      );
+    
+      // Load CSS styles.
+      $form['#attached']['css'][] = drupal_get_path('module', 'webform_popup_helper') . '/webform_popup_helper.css';
+
+      // Add custom validate and submit form's handlers.
+      $form['#validate'][] = 'webform_popup_helper_form_validate';
+      array_unshift($form['#submit'], 'webform_popup_helper_form_submit');
+    break;
+  }
+  
+  $webform = strpos($form_id, 'webform_client_form_');
+  if ($webform !== FALSE && ($form_state['webform']['page_num'] == $form_state['webform']['page_count'])) {    
+    $node = &$form['#node'];
+    $window_urls = webform_popup_helper_get_redirect_urls($node);
+    $window_duplicate_urls = webform_popup_helper_get_redirect_urls($node, 'duplicate');
+    $window_cond_urls = webform_popup_helper_get_redirect_urls($node, 'conditionals');
+
+    if (!empty($window_urls)) {
+      $js_popup_settings['urls']['defaults'] = $window_urls;
+    }
+
+    if (!empty($window_duplicate_urls)) {
+      $js_popup_settings['urls']['duplicate'] = $window_duplicate_urls;
+    }  
+
+    if (!empty($window_cond_urls)) {
+      $js_popup_settings['urls']['conditionals'] = $window_cond_urls;
+    }
+
+    if (!empty($js_popup_settings)) {
+      $js_settings = array($form_id => array(
+        'js_popup_settings' => $js_popup_settings,
+      ));
+  
+      drupal_add_js(array('webform_popup_helper' => $js_settings), array('type' => 'setting'));
+      drupal_add_js(drupal_get_path('module', 'webform_popup_helper') . '/js/webform_popup_helper.js');
+    }
+  
+    $form['#submit'][] = 'webform_client_form_custom_submit';
+  }
+}
+
+/**
+ * Submit handler for the "Add more" default button.
+ *
+ * Increments the max counter and causes a rebuild.
+ */
+function webform_popup_helper_add_more_url($form, &$form_state) {
+  $form_state['num_window_urls']++;
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Submit handler for the "Add more" duplicate button.
+ *
+ * Increments the max counter and causes a rebuild.
+ */
+function webform_popup_helper_add_more_duplicate_url($form, &$form_state) {
+  $form_state['num_window_duplicate_urls']++;
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Submit handler for the "Add more" conditional button.
+ *
+ * Increments the max counter and causes a rebuild.
+ */
+function webform_popup_helper_add_more_cond_url($form, &$form_state) {
+  $form_state['num_window_cond_urls'][] = count($form_state['num_window_cond_urls']) > 0 ? max($form_state['num_window_cond_urls']) + 1 : 0;
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Submit handler for the "Remove" button.
+ *
+ * Decrements the max counter and causes a form rebuild.
+ */
+function webform_popup_helper_add_more_remove_url($form, &$form_state) {
+  $delta_removed = $form_state['triggering_element']['#parents'][2];
+  $delta = array_search($delta_removed, $form_state['num_window_cond_urls']);
+  unset($form_state['window_cond_urls'][$delta]);
+  unset($form_state['num_window_cond_urls'][$delta]);
+
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Submit handler for the Add Default Url button.
+ */
+function webform_popup_helper_add_more_url_callback($form, $form_state) {
+  return $form['submission']['redirection']['windows']['defaults'];
+}
+
+/**
+ * Submit handler for the Add Duplicate Url button.
+ */
+function webform_popup_helper_add_more_duplicate_url_callback($form, $form_state) {
+  return $form['submission']['redirection']['windows']['duplicate'];
+}
+
+/**
+ * Submit handler for the Add Conditional Url button.
+ */
+function webform_popup_helper_add_more_cond_url_callback($form, $form_state) {
+  return $form['submission']['redirection']['windows']['conditionals'];
+}
+
+/**
+ * Validate handler for webform_popup_helper_form().
+ */
+function webform_popup_helper_form_validate($form, &$form_state) {
+  $window_cond_urls = $form_state['values']['windows']['conditionals'];
+
+  foreach ($window_cond_urls as $key => $conditional) {
+    if (empty($conditional['component']) && (!empty($conditional['values']) || !empty($conditional['url']))) {
+      form_set_error('windows][conditionals][' . $key . '][component', t('You must select a Webform component.'));
+    }
+  }
+  
+  if ($form_state['values']['redirect'] == 'windows') {
+    form_set_value($form['submission']['redirection']['redirect_url'], '<windows>', $form_state);
+  }
+  
+  if ($form_state['values']['redirect'] == 'windows' && empty($form_state['values']['windows']['defaults'][1]['url'])) {
+    form_set_error('windows][defaults][1][url',  t('Default Url field is required.'));
+  }
+}
+
+/**
+ * Add a submit handler/function for the webform_popup_helper_form.
+ */
+function webform_popup_helper_form_submit($form, &$form_state) {
+  // Edit the node by reference just to shorten it up.
+  $node = &$form['#node'];
+  form_state_values_clean($form_state);
+  
+  $redirect = $form_state['values']['redirect'];
+  $window_urls = $form_state['values']['windows']['defaults'];
+  $window_duplicate_urls = $form_state['values']['windows']['duplicate'];
+  $window_cond_urls = $form_state['values']['windows']['conditionals'];
+
+  // Save window urls.
+  $window_urls = array_filter($window_urls, 'webform_popup_helper_filter_empty_arrays');
+  $node->webform['window_urls'] = !empty($window_urls) && $redirect == 'windows' ? serialize($window_urls) : '';
+
+  // Save window duplicate urls.
+  $window_duplicate_urls = array_filter($window_duplicate_urls, 'webform_popup_helper_filter_empty_arrays');
+  $node->webform['window_duplicate_urls'] = !empty($window_duplicate_urls) && $redirect == 'windows' ? serialize($window_duplicate_urls) : '';
+  
+  // Save window conditional urls.
+  $window_cond_urls = array_filter($window_cond_urls, 'webform_popup_helper_filter_empty_arrays');
+  $window_cond_urls = array_values($window_cond_urls);
+
+  // Add component name to the array elements.
+  foreach ($window_cond_urls as $wcu_id => $window_cond_url) {
+    $window_cond_urls[$wcu_id]['component_name'] = isset($node->webform['components'][$window_cond_url['component']]['form_key']) ? $node->webform['components'][$window_cond_url['component']]['form_key'] : '';
+  }
+
+  $node->webform['window_cond_urls'] = !empty($window_cond_urls) && $redirect == 'windows' ? serialize($window_cond_urls) : '';
+}
+
+/**
+ * Additional handler/function for webform_client_form_custom submit.
+ */
+function webform_client_form_custom_submit($form, &$form_state) {
+  $node = $form['#node'];
+  $sid  = $form_state['values']['details']['sid'] ? (int) $form_state['values']['details']['sid'] : NULL;
+  $redirect = trim($node->webform['redirect_url'], '<>');
+
+  if ($redirect != 'windows') {
+    return;
+  }
+  
+  // Don't trigger this if the webform isn't completed, i.e. final step of a
+  // multi-step form.
+  $is_draft = !empty($form_state['save_draft']);
+
+  if (empty($form_state['save_draft']) && empty($form_state['webform_completed'])) {
+    return;
+  }
+
+  module_load_include('inc', 'webform', 'includes/webform.submissions');
+  $submission = webform_get_submission($node->webform['nid'], $sid);
+  $redirect_url = webform_popup_helper_get_server_redirect_url($node, $submission);
+
+  $form_state['redirect'] = $redirect_url;
+}

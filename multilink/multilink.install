@@ -1,0 +1,136 @@
+<?php
+
+/**
+ * Implements hook_field_schema().
+ */
+function multilink_field_schema($field) {
+  return array(
+    'columns' => array(
+      'title' => array(
+        'type' => 'varchar',
+        'length' => 2048,
+        'not null' => FALSE,
+      ),
+      'rollunder_url' => array(
+        'type' => 'varchar',
+        'length' => 1024,
+        'not null' => FALSE,
+      ),
+      'window_urls' => array(
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => FALSE,
+      ),
+      'seconds_delay' => array(
+        'description' => 'The number of seconds to delay the rollunder click.',
+        'type' => 'int',
+        'default' => 0,
+        'not null' => FALSE,
+      ),
+      'description_top_value' => array(
+        'description' => 'The description displayed above links.',
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+      ),
+      'description_top_format' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+      ),    
+      'description_bottom_value' => array(
+        'description' => 'The description displayed below links.',
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+      ),
+      'description_bottom_format' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+      ),
+    ),
+  );
+}
+
+/**
+ * Add the Rollunder Url and Delay Time columns to the Multilink fields table.
+ */
+function multilink_update_7100() {
+  // Get the list of fields of type 'multilink_field'.
+  $multilink_fields = array();
+  foreach (field_info_fields() as $field_name => $field_info) {
+    if ($field_info['type'] == 'multilink_field') {
+      $multilink_fields[$field_name] = field_read_field($field_name);
+    }
+  }
+
+  foreach ($multilink_fields as $field) {
+    if ($field['deleted']) {
+      $table = "field_deleted_data_{$field['id']}";
+      $revision_table = "field_deleted_revision_{$field['id']}";
+    }
+    else {
+      $table = "field_data_{$field['field_name']}";
+      $revision_table = "field_revision_{$field['field_name']}";
+    }
+    
+    // Add Rollunder Url field.
+    $column = $field['field_name'] . '_rollunder_url';
+    db_add_field($table, $column, array('type' => 'varchar', 'length' => 1024, 'not null' => FALSE));
+    db_add_field($revision_table, $column, array('type' => 'varchar', 'length' => 1024, 'not null' => FALSE));
+
+    // Add Seconds Delay field.
+    $column = $field['field_name'] . '_seconds_delay';
+    db_add_field($table, $column, array('type' => 'int', 'default' => 0, 'not null' => FALSE));
+    db_add_field($revision_table, $column, array('type' => 'int', 'default' => 0, 'not null' => FALSE));
+  }
+
+  return t('Additional columns added.');
+}
+
+/**
+ * Add Top and Below Description columns to Multilink fields table.
+ */
+function multilink_update_7101() {
+  // Get the list of fields of type 'multilink_field'.
+  $multilink_fields = array();
+  foreach (field_info_fields() as $field_name => $field_info) {
+    if ($field_info['type'] == 'multilink_field') {
+      $multilink_fields[$field_name] = field_read_field($field_name);
+    }
+  }
+
+  foreach ($multilink_fields as $field) {
+    if ($field['deleted']) {
+      $table = "field_deleted_data_{$field['id']}";
+      $revision_table = "field_deleted_revision_{$field['id']}";
+    }
+    else {
+      $table = "field_data_{$field['field_name']}";
+      $revision_table = "field_revision_{$field['field_name']}";
+    }
+    
+    // Add Top Description field.
+    $column = $field['field_name'] . '_description_top_value';
+    db_add_field($table, $column, array('type' => 'text', 'size' => 'big', 'not null' => FALSE));
+    db_add_field($revision_table, $column, array('type' => 'text', 'size' => 'big', 'not null' => FALSE));
+
+    // Add Top Description (Format) field.
+    $column = $field['field_name'] . '_description_top_format';
+    db_add_field($table, $column, array('type' => 'varchar', 'length' => 255, 'not null' => FALSE));
+    db_add_field($revision_table, $column, array('type' => 'varchar', 'length' => 255, 'not null' => FALSE));
+
+    // Add Bottom Description field.
+    $column = $field['field_name'] . '_description_bottom_value';
+    db_add_field($table, $column, array('type' => 'text', 'size' => 'big', 'not null' => FALSE));
+    db_add_field($revision_table, $column, array('type' => 'text', 'size' => 'big', 'not null' => FALSE));
+
+    // Add Bottom Description (Format) field.
+    $column = $field['field_name'] . '_description_bottom_format';
+    db_add_field($table, $column, array('type' => 'varchar', 'length' => 255, 'not null' => FALSE));
+    db_add_field($revision_table, $column, array('type' => 'varchar', 'length' => 255, 'not null' => FALSE));
+  }
+
+  return t('Additional columns added.');
+}

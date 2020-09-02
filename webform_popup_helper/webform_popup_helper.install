@@ -1,0 +1,85 @@
+<?php
+/**
+ * @file
+ * Webform Popup Helper install file.
+ *
+ * Alter Webform table schema to add the Popup Helper properties to a webform.
+ */
+
+/**
+ * Implements hook_schema_alter().
+ */
+function webform_popup_helper_schema_alter(&$schema) {
+  // Define our additional fields.
+  $schema['webform']['fields']['window_urls'] = array(
+    'type' => 'text',
+    'not null' => FALSE,
+    'description' => 'Popup window urls.',
+  );
+  
+  $schema['webform']['fields']['window_duplicate_urls'] = array(
+    'type' => 'text',
+    'not null' => FALSE,
+    'description' => 'Popup window urls for duplicate submissions.',
+  );  
+
+  $schema['webform']['fields']['window_cond_urls'] = array(
+    'type' => 'text',
+    'not null' => FALSE,
+    'description' => 'Popup window conditional urls.',
+  );
+}
+
+/**
+ * Implements hook_install().
+ */
+function webform_popup_helper_install() {
+  // Update schema. Add our additional fields.
+  $schema = array('webform' => array());
+  webform_popup_helper_schema_alter($schema);
+  foreach ($schema as $table => $table_def) {
+    foreach ($table_def['fields'] as $field => $spec) {
+      db_add_field($table, $field, $spec);
+    }
+  }
+}
+
+/**
+ * Add Window conditional urls field to webform table.
+ */
+function webform_popup_helper_update_7100() {
+  $specs = array(
+    'type' => 'text',
+    'not null' => FALSE,
+    'description' => 'Popup window conditional urls.',
+  );
+  
+  db_add_field('webform', 'window_cond_urls', $specs);
+}
+
+/**
+ * Add Window duplicate urls field to webform table.
+ */
+function webform_popup_helper_update_7101() {
+  $specs = array(
+    'type' => 'text',
+    'not null' => FALSE,
+    'description' => 'Popup window urls for duplicate submissions.',
+  );
+  
+  db_add_field('webform', 'window_duplicate_urls', $specs);
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function webform_popup_helper_uninstall() {
+  // Update schema. Drop our additional fields.
+  $schema = array('webform' => array());
+  webform_popup_helper_schema_alter($schema);
+  foreach ($schema as $table => $table_def) {
+    foreach ($table_def['fields'] as $field => $spec) {
+      db_drop_field($table, $field);
+    }
+  }
+}

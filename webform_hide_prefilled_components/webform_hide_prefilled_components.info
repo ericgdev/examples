@@ -1,0 +1,6 @@
+name = Webform Hide Prefilled Components
+description = Hide webform components if they are prefilled.
+package = Custom
+core = 7.x
+
+dependencies[] = webform

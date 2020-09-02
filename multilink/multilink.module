@@ -1,0 +1,405 @@
+<?php
+
+/**
+ * @file
+ * Provides a Multi-link field type that open multiple new windows.
+ */
+
+/**
+ * Implements hook_help().
+ */
+function multilink_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#multilink':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('The Multi-link module creates a button that can open multiple new windows. See the <a href="@field-help">Field module help page</a> for more information about fields.', 
+        array('@field-help' => url('admin/help/field'))) . '</p>';
+      return $output;
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function multilink_menu() {
+  $items = array();
+  
+  $items['multilink/check'] = array (
+    'page callback' => 'multilink_check',
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+/**
+ * multilink_json callback.
+ */
+function multilink_check() {
+  $result = array('valid' => TRUE);
+  drupal_json_output($result);
+}
+
+/**
+ * Implements hook_theme().
+ */
+function multilink_theme() {
+  return array(
+    'multilink_formatter_multilink_default' => array(
+      'variables' => array(
+        'element' => NULL,
+        'field' => NULL
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_info().
+ */
+function multilink_field_info() {
+  return array(
+    'multilink_field' => array(
+      'label' => t('Multi-link'),
+      'description' => t('This field creates a link that open multiple new windows.'),
+      'default_widget' => 'multilink_field',
+      'default_formatter' => 'multilink_default',
+      'property_type' => 'text',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_load().
+ */
+function multilink_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age) {
+  foreach ($entities as $id => $entity) {
+    foreach ($items[$id] as $delta => &$item) {
+      if (empty($item['window_urls'])) {
+        $item['window_urls'] = array();
+      }
+      else {
+        $item['window_urls'] = unserialize($item['window_urls']);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function multilink_field_is_empty($item, $field) {
+  return empty($item['title']) && empty($item['window_urls'][1]['url']);
+}
+
+/**
+ * Implements hook_field_presave().
+ */
+function multilink_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  $settings = $instance['settings'];
+  foreach ($items as $delta => &$item) {
+    // Trim any spaces around the URL title.
+    $item['title'] = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+
+    // Remove empty and unwanted array items.
+    $window_urls = array();
+
+    if (!empty($item['window_urls'])) {
+      $i = 1;
+      foreach ($item['window_urls'] as $key => $url) {
+        if (!is_numeric($key) || !isset($url['url']) || empty(trim($url['url']))) {
+          continue;
+        }
+
+        $window_urls[$i] = $url['url'];
+        $i++;
+      }
+    }
+
+    // Serialize the window_urls array.
+    $item['window_urls'] = !empty($window_urls) ? serialize($window_urls) : NULL;
+  
+  // Modify text_format fields.
+    $items[$delta]['description_bottom_format'] = $item['description_top']['format'];
+    $description_top_value = $item['description_top']['value'];
+    $items[$delta]['description_top_value'] = $description_top_value;
+  
+    $items[$delta]['description_bottom_format'] = $item['description_bottom']['format'];
+    $description_bottom_value = $item['description_bottom']['value'];
+    $items[$delta]['description_bottom_value'] = $description_bottom_value;
+  }
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function multilink_field_widget_info() {
+  return array(
+    'multilink_field' => array(
+      'label' => 'Multi-Link',
+      'field types' => array('multilink_field'),
+      'settings' => array('size' => 60),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_settings_form().
+ */
+function multilink_field_widget_settings_form($field, $instance) {
+  $widget = $instance['widget'];
+  $settings = $widget['settings'];
+
+  $form['size'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Size of URL field'),
+    '#default_value' => $settings['size'],
+    '#required' => TRUE,
+    '#element_validate' => array('element_validate_integer_positive'),
+    '#weight' => -1,
+  );
+
+  return $form;
+}
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function multilink_field_widget_form($form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $settings = $instance['settings'];
+
+  // Display this element in a fieldset if there is only one value.
+  if ($field['cardinality'] == 1) {
+    $element['#type'] = 'fieldset';
+  }
+
+  // Title field.
+  $element['title'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Button Title'),
+    '#required' => !empty($element['#required']),
+    '#default_value' => isset($items[$delta]['title']) ? $items[$delta]['title'] : NULL,
+    '#maxlength' => 1024,
+  );
+
+  // Seconds delay field.
+  $element['seconds_delay'] = array(
+    '#type' => 'select',
+    '#title' => t('Seconds to delay'),
+    '#description' => t('Enter a number of seconds to delay the Rollunder Url.'),
+    '#default_value' => isset($items[$delta]['seconds_delay']) ? $items[$delta]['seconds_delay'] : 0,
+    '#options' => drupal_map_assoc(range(0, 20))
+  );
+
+  // Rollunder Url field.
+  $element['rollunder_url'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Rollunder Url'),
+    '#required' => FALSE,
+    '#default_value' => isset($items[$delta]['rollunder_url']) ? $items[$delta]['rollunder_url'] : NULL,
+    '#maxlength' => 1024,
+  );
+
+  if (!isset($form_state['num_window_urls'][$delta])) {
+    $form_state['num_window_urls'][$delta] = !empty($items[$delta]['window_urls']) ? count($items[$delta]['window_urls']) : 1;
+  }
+
+  $element['window_urls'] = array(
+    '#type' => 'container',
+    '#prefix' => '<div id="window-urls-' . $delta . '-wrapper">',
+    '#suffix' => '</div>',
+  );
+
+  for ($i = 1; $i <= $form_state['num_window_urls'][$delta]; $i++) {
+    $element['window_urls'][$i]['url'] = array(
+      '#type' => 'textfield',
+      '#default_value' => isset($items[$delta]['window_urls'][$i]) ? $items[$delta]['window_urls'][$i] : '',
+      '#size' => $instance['widget']['settings']['size'],
+      '#maxlength' => 1024,
+    );
+
+    if ($i == 1) {
+      $element['window_urls'][$i]['url'] += array('#title' => t('Popup Urls'));
+    }
+  }
+
+  $element['window_urls']['add_url'] = array(
+    '#type' => 'submit',
+    '#name' => $field['field_name'] .'_add_more_urls_' . $delta . '-wrapper',
+    '#value' => t('Add another url'),
+    '#submit' => array('multilink_add_more_urls'),
+    '#ajax' => array(
+      'callback' => 'multilink_add_more_urls_callback',
+      'wrapper' => 'window-urls-' . $delta . '-wrapper',
+    ),
+    '#limit_validation_errors' => array(),
+    '#validation' => array(),
+  );
+  
+
+    // Top Description field.
+  $element['description_top'] = array(
+    '#type' => 'text_format',
+    '#title' => t('Top Description'),
+    '#format'=> isset($items[$delta]['description_top_format']) ? $items[$delta]['description_top_format'] : NULL,
+    '#required' => FALSE,
+    '#default_value' => isset($items[$delta]['description_top_value']) ? $items[$delta]['description_top_value'] : '',
+  );
+
+  // Bottom Description field.
+  $element['description_bottom'] = array(
+    '#type' => 'text_format',
+    '#title' => t('Bottom Description'),
+    '#format'=> isset($items[$delta]['description_bottom_format']) ? $items[$delta]['description_bottom_format'] : NULL,
+    '#required' => FALSE,
+    '#default_value' => isset($items[$delta]['description_bottom_value']) ? $items[$delta]['description_bottom_value'] : '',
+  );
+  
+  $element['#suffix'] = theme('webform_token_help', array('groups' => array('node')));
+  $element['#attached']['css'][] = drupal_get_path('module', 'multilink') . '/multilink.field.css';
+
+  return $element;
+}
+
+/**
+ * Implements hook_field_validate().
+ */
+function multilink_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  foreach ($items as $delta => $item) {
+    if (empty($item['title']) && !empty($item['rollunder_url'])) {
+      $errors[$field['field_name']][$langcode][$delta][] = array(
+        'error' => 'multilink_required',
+        'message' => t('You must enter a Title for the button.'),
+        'error_element' => array('title' => TRUE, 'rollunder_url' => FALSE),
+      );
+    }
+  }
+}
+
+/**
+ * Implements hook_field_widget_error().
+ */
+function multilink_field_widget_error($element, $error, $form, &$form_state) {
+  if ($error['error_element']['title']) {
+    form_error($element['title'], $error['message']);
+  }
+  elseif ($error['error_element']['rollunder_url']) {
+    form_error($element['rollunder_url'], $error['message']);
+  }
+
+}
+
+/**
+ * Submit handler for the Add Url button.
+ */
+function multilink_add_more_urls_callback($form, $form_state) {
+ // Get the array parents of the triggering element.
+  $parents = $form_state['triggering_element']['#array_parents']; 
+  array_pop($parents);
+  $element = drupal_array_get_nested_value($form, $parents);
+  return $element;
+}
+
+/**
+ * Submit handler for the "add-one-more" button.
+ *
+ * Increments the max counter and causes a rebuild.
+ */
+function multilink_add_more_urls($form, &$form_state) {
+  $parents = $form_state['triggering_element']['#parents'];
+  $form_state['num_window_urls'][$parents[2]]++;
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Implements hook_field_prepare_view().
+ */
+function multilink_field_prepare_view($entity_type, $entities, $field, $instances, $langcode, &$items) {
+  foreach ($entities as $id => $entity) {
+    foreach ($items[$id] as $delta => &$item) {
+      // Create rollunder url.
+      $item['rollunder_url'] = token_replace($item['rollunder_url'], array($entity_type => $entity), array('clear' => TRUE));
+	  
+      // Create identifier string.
+      $field_name = str_replace('_', '-', $field['field_name']);
+      $item['identifier'] = $field_name . '-' . $delta . '-' . $id;
+      
+      foreach ($item['window_urls'] as $key => $window_url) {
+        $url = token_replace($window_url, array($entity_type => $entity), array('clear' => TRUE));
+        
+        // Parse the URL into a form ready for url().
+        $parsed = drupal_parse_url($url);
+        $url = url($parsed['path'], array('query' => $parsed['query'], 'fragment' => $parsed['fragment'], 'absolute' => TRUE));
+        $item['window_urls'][$key] = $url;
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function multilink_field_formatter_info() {
+  $info['multilink_default'] = array(
+    'label' => t('Multi-Link'),
+    'field types' => array('multilink_field'),
+  );
+
+  return $info;
+}
+
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function multilink_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $elements = array();
+  foreach ($items as $delta => $item) {
+    $elements[$delta] = array(
+      '#theme' => 'multilink_formatter_' . $display['type'],
+      '#element' => $item,
+      '#field' => $instance,
+    );
+  }
+  
+  return $elements;
+}
+
+/**
+ * Formats a link.
+ */
+function theme_multilink_formatter_multilink_default($vars) {
+  $identifier         = $vars['element']['identifier'];
+  $seconds_delay      = $vars['element']['seconds_delay'];
+  $rollunder_url      = $vars['element']['rollunder_url'];
+  $window_urls        = $vars['element']['window_urls'];
+  $description_top    = $vars['element']['description_top_value'];
+  $description_bottom = $vars['element']['description_bottom_value'];  
+
+  if ($seconds_delay > 0 || empty($rollunder_url)) {
+    $link_url = 'javascript:void(0)';
+  }
+  else {
+    $link_url = url($rollunder_url);
+  }
+ 
+  $js_popup_settings['seconds_delay'] = $seconds_delay;
+  $js_popup_settings['rollunder_url'] = !empty($rollunder_url) ? url($rollunder_url) : '';
+  $js_popup_settings['window_urls']   = $window_urls;
+
+  $js_settings = array(
+    $identifier => $js_popup_settings,
+  );
+
+  drupal_add_js(array('multilink' => $js_settings), array('type' => 'setting'));
+  drupal_add_js(drupal_get_path('module', 'multilink') . '/js/multilink.js');
+  
+  $output  = $description_top;
+  $output .= l($vars['element']['title'], $link_url, array('fragment' => '', 'external' => TRUE, 'attributes' => array('class' => array('field-multilink', $identifier))));
+  $output .= $description_bottom;
+  
+  return $output;
+}

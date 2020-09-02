@@ -1,0 +1,17 @@
+<?php
+
+/**
+ * @file
+ * Hide Webform prefilled components.
+ */
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function webform_hide_prefilled_components_form_webform_client_form_alter(&$form, $form_state, $form_id) {
+  foreach($form['submitted'] as $component_key => $component) {
+    if (isset($component['#default_value']) && !empty($component['#default_value'])) {
+      $form['submitted'][$component_key]['#access'] = FALSE;
+    }     
+  }
+}

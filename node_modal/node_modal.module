@@ -1,0 +1,507 @@
+<?php
+
+// Load Node Modal functions.
+module_load_include('inc', 'node_modal', 'node_modal.functions');
+
+/**
+ * @file
+ * Provide Modal Popups for node pages.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function node_modal_menu() {
+  $items = array();
+  $items['node_modal/check'] = array (
+    'page callback' => 'node_modal_check',
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * node_modal_check_json callback.
+ */
+function node_modal_check() {
+  $result = array('valid' => TRUE);
+  drupal_json_output($result);
+}
+
+/**
+ * Implements hook_theme().
+ */
+function node_modal_theme() {
+  return array(
+    'node_modal' => array(
+      'variables' => array(
+        'node' => NULL,
+      ),
+      'template' => 'node-modal',
+      'path' => drupal_get_path('module', 'node_modal') . '/templates/',
+    ),
+  );
+}
+
+/**
+ * Theme preprocess callback. Format Modal Popup.
+ */
+function template_preprocess_node_modal(&$variables) {
+  $node = $variables['node'];
+
+  $variables['modal_id'] = '';
+  $variables['modal_class'] = '';
+  $variables['closing_disabled'] = '';
+  $variables['header_text'] = '';
+  $variables['content'] = '';
+
+  if (!empty($node->node_modal)) {
+    $variables['modal_id'] = 'node-modal-' . $node->nid;
+    $variables['closing_disabled'] = $node->node_modal['closing_disabled'];
+    $variables['header_text'] = $node->node_modal['header_text'];
+
+    // Load Content.
+    $node_nid = '';
+    $node_view = '';
+    if (!empty($node->node_modal['webform_nid'])) {
+      $node_nid = $node->node_modal['webform_nid'];
+    }
+    else if (!empty($node->node_modal['content_nid'])) {
+      $node_nid = $node->node_modal['content_nid'];
+    }
+
+    if (!empty($node_nid)) {
+      $node_content = node_load($node_nid);
+      $node_view = node_view($node_content);
+      $node_view = ($node->node_modal['target_type'] == 'webform') ? $node_view['webform'] : $node_view;
+      $node_view = drupal_render($node_view);
+
+      $variables['modal_class'] = ($node->node_modal['target_type'] == 'webform') ? 'modal-webform' : 'modal-node';
+      $variables['content'] = $node_view;
+
+      // Pass variables to JS file.
+      $js_settings['modal_id'] = $variables['modal_id'];
+      $js_settings['closing_disabled'] = $node->node_modal['closing_disabled'];
+      $js_settings['seconds_delay'] = $node->node_modal['seconds_delay'];
+    
+      // Add css and js files.
+      drupal_add_css(drupal_get_path('module', 'node_modal') . '/node_modal.css');
+      drupal_add_js(array('node_modal' => $js_settings), array('type' => 'setting'));
+
+      drupal_add_js(drupal_get_path('module', 'node_modal') . '/js/js.cookie.js');
+      drupal_add_js(drupal_get_path('module', 'node_modal') . '/js/node-modal.js');
+    }
+  }
+}
+
+/**
+ * Implement hook_node_load().
+ */
+function node_modal_node_load($nodes, $types) {
+  $node_nids = array();
+
+  foreach ($nodes as $node) {
+    if (variable_get('node_modal_status_' . $node->type, FALSE)) {
+      $node_nids[] = $node->nid;
+      $node->node_modal = array();
+    }
+  }
+
+  if (!empty($node_nids)) {
+    $query = db_select('node_modal', 'n');
+    $query->fields('n')
+      ->condition('n.nid', $node_nids);
+    $result = $query->execute();
+
+    foreach ($result as $record) {
+      $nodes[$record->nid]->node_modal['status'] = $record->status;
+      $nodes[$record->nid]->node_modal['closing_disabled'] = $record->closing_disabled;
+      $nodes[$record->nid]->node_modal['seconds_delay'] = $record->seconds_delay;
+      $nodes[$record->nid]->node_modal['header_text'] = $record->header_text;
+      $nodes[$record->nid]->node_modal['target_type'] = $record->target_type;
+      $nodes[$record->nid]->node_modal['webform_nid'] = $record->webform_nid;
+      $nodes[$record->nid]->node_modal['webform_components'] = unserialize($record->webform_components);
+      $nodes[$record->nid]->node_modal['content_nid'] = $record->content_nid;
+      $nodes[$record->nid]->node_modal['has_offer_id'] = $record->has_offer_id;
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Add setting to webform all components: configure charting.
+ */
+function node_modal_form_webform_component_edit_form_alter(&$form, $form_state) {
+  $args = $form_state['build_info']['args'][1];
+
+  $form['extra']['node_modal_toggle_visibility'] = array(
+    '#type' => 'checkbox',
+    '#title' => t("Make component as toggleable from Node Modal popup UI"),
+    '#default_value' => isset($args['extra']['node_modal_toggle_visibility']) ? $args['extra']['node_modal_toggle_visibility'] : '',
+  );
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function node_modal_form_alter(&$form, &$form_state, $form_id) {
+  $webform = strpos($form_id, 'webform_client_form_');
+  if ($webform !== FALSE) {
+    if ($current_node = menu_get_object()) {
+      // Check if Modal Popup is enabled on node and has a webform attached.
+      if (isset($current_node->node_modal['status']) && $current_node->node_modal['status'] == TRUE && !empty($current_node->node_modal['webform_nid'])) {
+        $node = $form['#node'];
+
+        $webform_components = node_modal_get_webform_components($current_node->nid);
+        foreach ($node->webform['components'] as $cid => $component) {
+          if (isset($component['extra']['node_modal_toggle_visibility']) && $component['extra']['node_modal_toggle_visibility'] == TRUE) {
+            $component_form_key = $component['form_key'];
+
+            // Disable webform components by default.
+            $form['submitted'][$component_form_key]['#access'] = FALSE;
+
+            // Enable webform components marked as enabled.
+            if (isset($webform_components[$component_form_key]) && $webform_components[$component_form_key] == TRUE) {
+              $form['submitted'][$component_form_key]['#access'] = TRUE;
+            }
+          }
+        }
+    
+        // Check if clientside validation is enabled for current webform.
+        $clientside_validation_enabled = node_modal_check_clientside_validation($form_id);
+
+        // Add ajax callback.
+        if ($clientside_validation_enabled) {
+          $js_settings['clientside_validation_enabled'] = TRUE;
+          $js_settings['webform_form_id'] = $form_id;
+          
+          // Add js files.
+          drupal_add_js(array('node_modal' => $js_settings), array('type' => 'setting'));      
+        }
+        else {
+          $form['actions']['submit']['#ajax'] = array(
+            'callback' => 'node_modal_webform_client_form_submit',
+            'wrapper' => 'webform-client-form-' . $node->nid,
+            'effect' => 'fade',
+          );
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Add a submit handler/function for the webform_client_form.
+ */
+function node_modal_webform_client_form_submit($form, &$form_state) {
+  $sid = $form_state['values']['details']['sid'];
+
+  if ($sid) {
+    $commands = array();
+    $commands[] = ajax_command_invoke('.modal', 'modal', array('hide'));
+
+    return array(
+      '#type' => 'ajax',
+      '#commands' => $commands,
+    );
+  }
+  else {
+    return $form;
+  }
+}
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter().
+ */
+function node_modal_form_node_type_form_alter(&$form, $form_state, $form_id) {
+  if (isset($form['type'])) {
+    $form['node_modal'] = array(
+      '#title' => t('Modal Popup'),
+      '#type' => 'fieldset',
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+      '#group' => 'additional_settings',
+      '#weight' => 10,
+      '#attached' => array(
+        'js' => array(drupal_get_path('module', 'node_modal') . '/js/node-modal-form.js'),
+      ),
+    );
+
+    $form['node_modal']['node_modal_status'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Enable Modal Popup functionality'),
+      '#description' => t('Allows a Modal Popup to be displayed on nodes.'),
+      '#weight' => 0,
+      '#default_value' => variable_get('node_modal_status_' . $form['#node_type']->type, FALSE),
+      '#attributes' => array(
+        'data-enabled-description' => t('Enabled'),
+        'data-disabled-description' => t('Disabled'),
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter().
+ */
+function node_modal_form_node_form_alter(&$form, &$form_state) {
+  $node = $form['#node'];
+
+  if (variable_get('node_modal_status_' . $node->type, FALSE)) {
+    $form['node_modal_settings'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Modal Popup settings'),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+      '#group' => 'additional_settings',
+      '#attributes' => array(
+        'class' => array('node-modal-node-settings-form'),
+      ),
+      '#attached' => array(
+        'js' => array(drupal_get_path('module', 'node_modal') . '/js/node-modal-form.js'),
+       ),
+      '#weight' => 30,
+    );
+
+    $form['node_modal_settings']['node_modal_status'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Enable Modal Popup'),
+      '#description' => t('Allows Modal Popup to be displayed on node.'),
+      '#default_value' => isset($node->node_modal['status']) ? $node->node_modal['status'] : 0,
+      '#attributes' => array(
+        1 => t('Enabled'),
+        0 => t('Disabled'),
+      ),
+    );
+
+    $form['node_modal_settings']['node_modal_seconds_delay'] = array(
+      '#type' => 'select',
+      '#title' => t('Number of seconds to start'),
+      '#description' => t('Enter a number of seconds to delay the Modal Popup.'),
+      '#default_value' => isset($node->node_modal['seconds_delay']) ? $node->node_modal['seconds_delay'] : '',
+      '#options' => drupal_map_assoc(range(0, 20)),
+       '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+        ),
+      ),
+    );
+
+    $form['node_modal_settings']['node_modal_header_text'] = array(
+      '#type' => 'textarea',
+      '#title' => t('Header text'),
+      '#description' => t('Provide a header text for the Modal Popup.'),
+      '#default_value' => isset($node->node_modal['header_text']) ? $node->node_modal['header_text'] : '',
+      '#rows' => 4,
+      '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+        ),
+      ),
+    );
+
+    $form['node_modal_settings']['node_modal_target_type'] = array(
+      '#type' => 'select',
+      '#title' => t('Target type'),
+      '#description' => t('The entity type that can be referenced through this field.'),
+      '#default_value' => isset($node->node_modal['target_type']) ? $node->node_modal['target_type'] : 'webform',
+      '#options' => array(
+        'node' => t('Content'),
+        'webform' => t('Webform'),
+      ),
+      '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+        ),
+      ),
+    );
+
+    // Get Webform nid.
+    $webform_nid = isset($node->node_modal['webform_nid']) ? $node->node_modal['webform_nid'] : '';
+    $webform_nid = isset($form_state['values']['node_modal_webform_nid']) ? $form_state['values']['node_modal_webform_nid'] : $webform_nid;
+
+    $form['node_modal_settings']['node_modal_webform_nid'] = array(
+      '#type' => 'select',
+      '#title' => t('Select a Webform'),
+      '#description' => t('Choose a webform to display below the header text.'),
+      '#default_value' => $webform_nid,
+      '#options' => array(0 => t('Select')) + node_modal_get_webform_list(),
+      '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+          ':input[name=node_modal_target_type]' => array('value' => 'webform'),
+        ),
+      ),
+      '#ajax' => array(
+        'callback' => 'node_modal_webform_callback',
+        'wrapper' => 'node-modal-webform-components',
+      ),
+    );
+
+    $form['node_modal_settings']['node_modal_webform_components'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Webform components'),
+      '#description' => t('Select the webform components you need to show.'),
+      '#tree' => TRUE,
+      '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_target_type]' => array('value' => 'webform'),
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+        ),
+      ),
+      '#prefix' => '<div id="node-modal-webform-components">',
+      '#suffix' => '</div>',
+    );
+
+    if (!empty($webform_nid)) {
+      $webform_node = node_load($webform_nid);
+
+      if (isset($webform_node->webform['components'])) {
+        // Retrieve Webform components.
+        foreach ($webform_node->webform['components'] as $cid => $component) {
+          if (isset($component['extra']['node_modal_toggle_visibility']) && $component['extra']['node_modal_toggle_visibility'] == TRUE) {
+            // Get component value.
+            $component_form_key = $component['form_key'];
+            $component_value = isset($node->node_modal['webform_components'][$component_form_key]) ?
+              $node->node_modal['webform_components'][$component_form_key] : '';
+
+            // Add field for each component.
+            $form['node_modal_settings']['node_modal_webform_components'][$component_form_key] = array(
+              '#type' => 'checkbox',
+              '#title' => $component['name'],
+              '#default_value' => $component_value,
+            );
+          }
+        }
+      }
+    }
+
+    $form['node_modal_settings']['node_modal_closing_disabled'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Disable Closing option'),
+      '#description' => t('Not allow users to close Modal Popup without submitting the form.'),
+      '#default_value' => isset($node->node_modal['closing_disabled']) ? $node->node_modal['closing_disabled'] : 0,
+      '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_target_type]' => array('value' => 'webform'),
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+        ),
+      ),
+    );
+
+    $form['node_modal_settings']['node_modal_has_offer_id'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Hasoffers Offer ID'),
+      '#description' => t('The Hasoffers Offer ID'),
+      '#default_value' => isset($node->node_modal['has_offer_id']) ? $node->node_modal['has_offer_id'] : '',
+      '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_target_type]' => array('value' => 'webform'),
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+        ),
+      ),
+    );
+
+    $form['node_modal_settings']['node_modal_content_nid'] = array(
+      '#type' => 'select',
+      '#title' => t('Select the Content to Display'),
+      '#description' => t('Choose which available content to display in the modal.'),
+      '#default_value' => isset($node->node_modal['content_nid']) ? $node->node_modal['content_nid'] : '',
+      '#options' => array(0 => t('Select')) + node_modal_get_node_list(),
+      '#states' => array(
+        'visible' => array(
+          ':input[name=node_modal_target_type]' => array('value' => 'node'),
+          ':input[name=node_modal_status]' => array('checked' => TRUE),
+        ),
+      ),
+    );
+  }
+}
+
+/**
+ * Callback for node_modal_webform_callback.
+ *
+ * @return array
+ *   Renderable array (the textfield element)
+ */
+function node_modal_webform_callback($form, $form_state) {
+  return $form['node_modal_settings']['node_modal_webform_components'];
+}
+
+/**
+ * Implementation of hook_node_insert().
+ */
+function node_modal_node_insert($node) {
+  if (isset($node->node_modal_status) && $node->node_modal_status == TRUE) {
+    db_insert('node_modal')
+      ->fields(array(
+        'nid' => $node->nid,
+        'status' => isset($node->node_modal_status) ? $node->node_modal_status : 0,
+        'closing_disabled' => isset($node->node_modal_closing_disabled) && ($node->node_modal_target_type == 'webform') ?
+          $node->node_modal_closing_disabled : 0,
+        'seconds_delay' => isset($node->node_modal_seconds_delay) ? $node->node_modal_seconds_delay : 0,
+        'header_text' => isset($node->node_modal_header_text) ? $node->node_modal_header_text : '',
+        'target_type' => isset($node->node_modal_target_type) ? $node->node_modal_target_type : 'webform',
+        'webform_nid' => isset($node->node_modal_webform_nid) && ($node->node_modal_target_type == 'webform') ? $node->node_modal_webform_nid : 0,
+        'content_nid' => isset($node->node_modal_content_nid) && ($node->node_modal_target_type == 'node') ? $node->node_modal_content_nid : 0,
+        'has_offer_id' => isset($node->node_modal_has_offer_id) && ($node->node_modal_target_type == 'webform') ? $node->node_modal_has_offer_id : '',
+        'webform_components' => isset($node->node_modal_webform_components) && ($node->node_modal_target_type == 'webform') ?
+          serialize($node->node_modal_webform_components) : NULL,
+      ))
+      ->execute();
+  }
+}
+
+/**
+ * Implementation of hook_node_update().
+ */
+function node_modal_node_update($node) {
+  if (isset($node->node_modal_status)) {
+    db_delete('node_modal')
+      ->condition('nid', $node->nid)
+      ->execute();
+
+    node_modal_node_insert($node);
+  }
+}
+
+/**
+ * Implementation of hook_node_delete().
+ */
+function node_modal_node_delete($node) {
+  if (isset($node->node_modal) && !empty($node->node_modal)) {
+    db_delete('node_modal')
+      ->condition('nid', $node->nid)
+      ->execute();
+  }
+}
+
+/**
+ * Implements hook_node_view().
+ */
+function node_modal_node_view($node, $view_mode) {
+  if ($view_mode == 'full') {
+    if (variable_get('node_modal_status_' . $node->type, FALSE) && isset($node->node_modal['status']) && $node->node_modal['status'] == 1) {
+      $node->content['node_modal'] = array(
+        '#markup' => theme('node_modal', array('node' => $node)),
+      );
+    }
+  }
+}
+
+/**
+ * Implements hook_kylepro_lead_identity_params_alter().
+*/
+function node_modal_kylepro_lead_identity_params_alter(&$lead_api_params, $webform_nid) {
+  if ($node = menu_get_object()) {
+    if (isset($node->node_modal) && $node->node_modal['webform_nid'] == $webform_nid) {
+      if (!empty($node->node_modal['has_offer_id'])) {
+        $lead_api_params['has_offer_id'] = $node->node_modal['has_offer_id'];
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+#conditional-urls .form-submit {
+  clear: both;
+  margin-top: 10px;
+}
+
+.conditionals-wrapper .form-item {
+  float: left;
+  margin: 0 10px!important;
+}
+
+#conditional-urls .form-item .form-submit {
+  clear: none;
+  margin-top: 15px;
+}

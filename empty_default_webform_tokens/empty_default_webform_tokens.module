@@ -1,0 +1,52 @@
+<?php
+
+/**
+ * @file empty_default_webform_tokens.module
+ */
+
+/**
+* over write webform default value for fname, lname, phone and email
+* Applies to every webform
+*
+* Matches value by token on the following and sets the default value to empty
+* [current-page:query:fname]
+* [current-page:query:lname]
+* [current-page:query:phone]
+* [current-page:query:email]
+*
+*/
+
+/**
+ * Implements hook_form_alter().
+ */
+function empty_default_webform_tokens_form_alter(&$form, &$form_state, $form_id) {
+  if ((isset($form['#node']) && $form['#node']->type == 'webform')) {
+    $tokens_replace = array('[current-page:query:fname]', '[current-page:query:lname]', '[current-page:query:phone]', '[current-page:query:email]');
+    if (isset($form['submitted'])) {
+      foreach($form['submitted'] as $key => $val) {
+        if (isset($val['#webform_component']) && isset($val['#webform_component']['value'])
+          && in_array($val['#webform_component']['value'], $tokens_replace)
+          && empty_default_webform_tokens_startsWith($val['#default_value'], '{')
+          && empty_default_webform_tokens_endsWith($val['#default_value'], '}')
+        ) {
+          $form['submitted'][$key]['#default_value'] = '';
+        }
+      }
+    }
+  }
+}
+
+function empty_default_webform_tokens_startsWith($haystack, $needle)
+{
+     $length = strlen($needle);
+     $ret =  (substr($haystack, 0, $length) === $needle);
+     return $ret;
+}
+
+function empty_default_webform_tokens_endsWith($haystack, $needle)
+{
+    $length = strlen($needle);
+    $ret =  $length === 0 ||
+    (substr($haystack, - $length) === $needle);
+    return $ret;
+}

@@ -1,0 +1,6 @@
+name = Multi-link field
+description = Defines a Multi-link field type that open multiple new windows.
+package = Fields
+core = 7.x
+
+dependencies[] = field

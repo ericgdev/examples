@@ -1,0 +1,143 @@
+<?php
+/**
+ * @file
+ * Node Modal install file.
+ */
+
+/*
+ * Implementation of hook_schema()
+ */
+function node_modal_schema() {
+  $schema['node_modal'] = array(
+    'fields' => array(
+      'nid' => array(
+        'description' => 'The node identifier.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'status' => array(
+        'description' => t('The node modal status.'),
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'size' => 'tiny',
+      ),
+      'seconds_delay' => array(
+        'description' => 'The number of seconds to delay the Modal Popup.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'header_text' => array(
+        'description' => 'A header text for the Modal Popup.',
+        'type' => 'text',
+        'not null' => TRUE,
+        'size' => 'big',
+      ),
+      'closing_disabled' => array(
+        'description' => t('The node modal closing status.'),
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'size' => 'tiny',
+      ),
+      'target_type' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'default' => '',
+        'description' => 'Target type (node or webform).',
+      ),
+      'webform_nid' => array(
+        'description' => 'The node identifier of a webform.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'webform_components' => array(
+        'type' => 'text',
+        'not null' => FALSE,
+        'description' => 'Webforms components to hide.',
+      ),
+      'content_nid' => array(
+        'description' => 'The node identifier.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'has_offer_id' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'default' => '',
+        'description' => 'Has Offer ID.',
+      ),
+    ),
+    'primary key' => array('nid'),
+    'indexes' => array(
+      'nid' => array('nid'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Add the Closing disable option field to the fields table.
+ */
+function node_modal_update_7100() {
+  $schema = node_modal_schema();
+  if (!db_field_exists('node_modal', 'closing_disabled')) {
+    db_add_field('node_modal', 'closing_disabled', $schema['node_modal']['fields']['closing_disabled']);
+  }
+}
+
+/**
+ * Add the Has Offer Id field to the fields table.
+ */
+function node_modal_update_7101() {
+  $schema = node_modal_schema();
+  if (!db_field_exists('node_modal', 'has_offer_id')) {
+    db_add_field('node_modal', 'has_offer_id', $schema['node_modal']['fields']['has_offer_id']);
+  }
+}
+
+/**
+ * Add the Content Nid field to the fields table.
+ */
+function node_modal_update_7102() {
+  $schema = node_modal_schema();
+  if (!db_field_exists('node_modal', 'target_type')) {
+    db_add_field('node_modal', 'target_type', $schema['node_modal']['fields']['target_type']);
+  }
+  
+  if (!db_field_exists('node_modal', 'content_nid')) {
+    db_add_field('node_modal', 'content_nid', $schema['node_modal']['fields']['content_nid']);
+  }
+
+  $update = db_update('node_modal')
+    ->fields(array(
+      'target_type' => 'webform',
+    ))
+    ->condition('status', 1, '=')
+    ->execute();
+}
+
+/**
+ * Add the Webform components field to the node_modal table.
+ */
+function node_modal_update_7103() {
+  $schema = node_modal_schema();
+  if (!db_field_exists('node_modal', 'webform_components')) {
+    db_add_field('node_modal', 'webform_components', $schema['node_modal']['fields']['webform_components']);
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function node_modal_uninstall() {
+  // Unset node modal variables.
+  foreach (node_type_get_names() as $type => $name) {
+    variable_del('node_modal_status_' . $type);
+  }
+}

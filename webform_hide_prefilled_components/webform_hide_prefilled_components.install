@@ -1,0 +1,63 @@
+<?php
+/**
+ * @file
+ * Webform Hide prefilled components install file.
+ *
+ * Alter Webform table schema.
+ */
+
+/**
+ * Implements hook_schema_alter().
+ */
+function webform_hide_prefilled_components_schema_alter(&$schema) {
+  // Define our additional fields.
+  $schema['webform']['fields']['webform_hide_prefilled_components'] = array(
+    'type' => 'int',
+    'size' => 'tiny',
+    'not null' => TRUE,
+    'default' => 0,
+    'description' => 'Flag to indicate whether the prefilled webform components are hide or not.',
+  );
+}
+
+/**
+ * Implements hook_install().
+ */
+function webform_hide_prefilled_components_install() {
+  // Update schema. Add our additional fields.
+  $schema = array('webform' => array());
+  webform_hide_prefilled_components_schema_alter($schema);
+  foreach ($schema as $table => $table_def) {
+    foreach ($table_def['fields'] as $field => $spec) {
+      db_add_field($table, $field, $spec);
+    }
+  }
+}
+
+/**
+ * Remove Webform Hide prefilled components field.
+ */
+function webform_hide_prefilled_components_update_7101() {
+  // Update schema. Drop our additional fields.
+  $schema = array('webform' => array());
+  webform_hide_prefilled_components_schema_alter($schema);
+  foreach ($schema as $table => $table_def) {
+    foreach ($table_def['fields'] as $field => $spec) {
+      db_drop_field($table, $field);
+    }
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function webform_hide_prefilled_components_uninstall() {
+  // Update schema. Drop our additional fields.
+  $schema = array('webform' => array());
+  webform_hide_prefilled_components_schema_alter($schema);
+  foreach ($schema as $table => $table_def) {
+    foreach ($table_def['fields'] as $field => $spec) {
+      db_drop_field($table, $field);
+    }
+  }
+}

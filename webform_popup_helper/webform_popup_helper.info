@@ -1,0 +1,8 @@
+; $Id: $
+name = Webform Popup Helper
+description = Enables the creation of redirect URLs as popup windows.
+core = 7.x
+package = Webform
+php = 5.3
+
+dependencies[] = webform

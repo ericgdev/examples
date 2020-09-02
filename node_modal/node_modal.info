@@ -1,0 +1,7 @@
+; $Id: $
+name = Node Modal
+description = Enables the display of Modal Popups on node types.
+package = Custom
+core = 7.x
+
+dependencies[] = webform

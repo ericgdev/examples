@@ -1,0 +1,9 @@
+.modal-node .modal-dialog {
+  width: 95%;
+  height: 95%;
+}
+
+.modal-node .modal-content {
+  height: auto;
+  min-height: 100%;
+}

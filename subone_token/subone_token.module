@@ -1,0 +1,15 @@
+<?php
+
+/**
+ * Implements hook_tokens_alter().
+ */
+function subone_token_tokens_alter(array &$replacements, array $context) {
+  if ($context['type'] == 'current-page') {
+    // Find any token starting with query.
+    if ($value_tokens = token_find_with_prefix($context['tokens'], 'query')) {
+      if (!empty($value_tokens['subone']) && !isset($_GET['subone'])) {
+        $replacements[$value_tokens['subone']] = 2;
+      }
+    }
+  }
+}

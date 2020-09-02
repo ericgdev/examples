@@ -1,0 +1,4 @@
+name = Subone token
+description = Set the default value for the Subone token.
+core = 7.x
+package = Custom
